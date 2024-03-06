@@ -1,0 +1,9 @@
+[package]
+name = "bity"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bity-impl = { path = "../bity-impl/", version = "0.1" }
+bitut = { path = "../../bitut", version = "0.1" }
+arbitrary-int = "1.2"

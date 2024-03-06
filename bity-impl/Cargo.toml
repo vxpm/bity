@@ -1,0 +1,15 @@
+[package]
+name = "bity-impl"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+proc-macro = true
+
+[dev-dependencies]
+bity = { path = "../bity-core/" }
+
+[dependencies]
+proc-macro2 = "1.0.78"
+quote = "1.0.35"
+syn = { version = "2.0.52", features = ["full", "extra-traits"] }
