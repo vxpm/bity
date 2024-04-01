@@ -2,6 +2,7 @@ use super::error;
 use proc_macro2::TokenStream;
 use quote::format_ident;
 use quote::quote;
+use quote::ToTokens;
 use syn::parse_quote;
 use syn::Attribute;
 use syn::Expr;
@@ -179,7 +180,7 @@ fn simple_field_getter(
 
                 #range_assertions
 
-                let extracted = unsafe { self.__raw.value().bits(#bit_range_start, #bit_range_end).try_into().unwrap_unchecked() };
+                let extracted = unsafe { <#raw_inner_ty as Number>::UnderlyingType::try_from(self.__raw.value().bits(#bit_range_start, #bit_range_end)).unwrap_unchecked() };
                 <#inner_ty as TryBits>::try_from_raw(<#raw_inner_ty as Number>::new(extracted))
             }
         })
@@ -227,10 +228,11 @@ fn simple_field_setter(
         Ok(quote! {
             #[doc = #setter_doc_string]
             #[inline]
+            #[must_use]
             #field_vis fn #setter_name (self, value: #inner_ty) -> Self {
                 #method_prelude
 
-                let new_value = unsafe { value.into_raw().try_into().unwrap_unchecked() };
+                let new_value = unsafe { value.into_raw().value().try_into().unwrap_unchecked() };
                 let new_inner = self.__raw.value().with_bits(#bit_range_start, #bit_range_end, new_value);
                 Self { __raw: <#bit_struct_inner_ty>::new(new_inner) }
             }
@@ -239,10 +241,11 @@ fn simple_field_setter(
         Ok(quote! {
             #[doc = #setter_doc_string]
             #[inline]
+            #[must_use]
             #field_vis fn #setter_name (self, value: #field_ty) -> Self {
                 #method_prelude
 
-                let new_value = unsafe { value.into_raw().try_into().unwrap_unchecked() };
+                let new_value = unsafe { value.into_raw().value().try_into().unwrap_unchecked() };
                 let new_inner = self.__raw.value().with_bits(#bit_range_start, #bit_range_end, new_value);
                 Self { __raw: <#bit_struct_inner_ty>::new(new_inner) }
             }
@@ -350,6 +353,7 @@ fn array_field_elem_setter(
     Ok(quote! {
         #[doc = #setter_doc_string]
         #[inline]
+        #[must_use]
         #field_vis fn #setter_name (self, index: usize, value: #field_elem_ty) -> Self {
             #method_prelude
 
@@ -360,13 +364,14 @@ fn array_field_elem_setter(
             let elem_start = #bit_range_start + <#raw_field_elem_ty as Number>::BITS * index;
             let elem_end = elem_start + <#raw_field_elem_ty as Number>::BITS;
 
-            let new_value = unsafe { value.into_raw().try_into().unwrap_unchecked() };
+            let new_value = unsafe { value.into_raw().value().try_into().unwrap_unchecked() };
             let new_inner = self.__raw.value().with_bits(elem_start as u8, elem_end as u8, new_value);
             Self { __raw: <#bit_struct_inner_ty>::new(new_inner) }
         }
 
         #[doc = #try_setter_doc_string]
         #[inline]
+        #[must_use]
         #field_vis fn #try_setter_name (self, index: usize, value: #field_elem_ty) -> Option<Self> {
             #method_prelude
 
@@ -374,7 +379,7 @@ fn array_field_elem_setter(
                 let elem_start = #bit_range_start + <#raw_field_elem_ty as Number>::BITS * index;
                 let elem_end = elem_start + <#raw_field_elem_ty as Number>::BITS;
 
-                let new_value = unsafe { value.into_raw().try_into().unwrap_unchecked() };
+                let new_value = unsafe { value.into_raw().value().try_into().unwrap_unchecked() };
                 let new_inner = self.__raw.value().with_bits(elem_start as u8, elem_end as u8, new_value);
                 Self { __raw: <#bit_struct_inner_ty>::new(new_inner) }
             })
@@ -439,13 +444,13 @@ fn array_field_setter(field: &Field) -> Result<TokenStream, TokenStream> {
     Ok(quote! {
         #[doc = #setter_doc_string]
         #[inline]
+        #[must_use]
         #field_vis fn #setter_name (self, value: #field_ty) -> Self {
             #method_prelude
 
             let mut result = self;
             for (index, elem) in value.into_iter().enumerate() {
-                let new_elem_value = unsafe { elem.into_raw().try_into().unwrap_unchecked() };
-                result = result.#elem_setter_name(index, new_elem_value);
+                result = result.#elem_setter_name(index, elem);
             }
 
             result
@@ -490,6 +495,7 @@ struct BitStruct {
     pub def: ItemStruct,
     pub bit_size: LitInt,
     pub inner_ty: Type,
+    pub generate_debug: bool,
 }
 
 impl BitStruct {
@@ -508,26 +514,70 @@ impl BitStruct {
             ..
         } = &original_def;
 
-        if !generics.params.is_empty() {
-            return Err(error!(generics.span(), "Bit structs cannot be generic"));
+        if generics.type_params().count() != 0 {
+            return Err(error!(
+                generics.span(),
+                "Bit structs cannot be generic over types"
+            ));
         }
 
         if !matches!(fields, Fields::Named(_)) {
             return Err(error!(fields.span(), "Bit structs must have named fields"));
         }
 
+        let mut new_attrs = attrs.clone();
+        let generate_debug = new_attrs.iter_mut().any(|attr| {
+            let syn::Meta::List(list) = &mut attr.meta else {
+                return false;
+            };
+
+            if !list.path.is_ident("derive") {
+                return false;
+            }
+
+            let parser =
+                syn::punctuated::Punctuated::<syn::Path, syn::token::Comma>::parse_terminated;
+            let Ok(mut args) = list.parse_args_with(parser) else {
+                return false;
+            };
+
+            let debug_index = args
+                .iter()
+                .enumerate()
+                .find_map(|(index, arg)| arg.is_ident("Debug").then_some(index));
+
+            let Some(debug_index) = debug_index else {
+                return false;
+            };
+
+            let inverted_debug_index = args.len() - debug_index - 1;
+            let mut new_args = syn::punctuated::Punctuated::<syn::Path, syn::token::Comma>::new();
+            for i in 0..args.len() {
+                let arg = args.pop().unwrap().into_value();
+                if i != inverted_debug_index {
+                    new_args.push(arg);
+                }
+            }
+
+            list.tokens = new_args.to_token_stream();
+            true
+        });
+
+        let (impl_generics, _, where_clause) = generics.split_for_impl();
         Ok(Self {
             def: parse_quote! {
-                #(#attrs)*
-                #vis struct #ident {
+                #(#new_attrs)*
+                #[derive(Clone, Copy)]
+                #vis struct #ident #impl_generics #where_clause {
                     /// This is the raw, inner value of this struct. You can directly manipulate it
-                    /// if desired.
+                    /// if desired, but prefer using `into_raw` and `(try_)from_raw`.
                     __raw: #inner_ty
                 }
             },
             original_def,
             bit_size,
             inner_ty,
+            generate_debug,
         })
     }
 }
@@ -539,8 +589,19 @@ pub fn generate(
     let bit_struct = BitStruct::new(struct_def, struct_bit_size)?;
     let bit_struct_def = &bit_struct.def;
     let bit_struct_name = &bit_struct.def.ident;
+    let bit_struct_name_str = &bit_struct.def.ident.to_string();
     let bit_struct_inner_ty = &bit_struct.inner_ty;
 
+    let field_names = bit_struct
+        .original_def
+        .fields
+        .iter()
+        .map(|f| f.ident.as_ref().expect("only named fields"));
+    let field_names_str = bit_struct
+        .original_def
+        .fields
+        .iter()
+        .map(|f| f.ident.as_ref().expect("only named fields").to_string());
     let fields_methods: Result<Vec<TokenStream>, TokenStream> = bit_struct
         .original_def
         .fields
@@ -549,30 +610,62 @@ pub fn generate(
         .collect();
     let fields_methods = fields_methods?;
 
+    let (impl_generics, ty_generics, where_clause) = bit_struct_def.generics.split_for_impl();
+    let debug_impl = if bit_struct.generate_debug {
+        Some(quote! {
+            impl #impl_generics ::core::fmt::Debug for #bit_struct_name #ty_generics #where_clause {
+                #[inline]
+                fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+                    f.debug_struct(#bit_struct_name_str)
+                        #(.field(#field_names_str, &self.#field_names()))*
+                        .finish()
+                }
+            }
+        })
+    } else {
+        None
+    };
+
     Ok(quote! {
         #bit_struct_def
 
-        impl #bit_struct_name {
+        impl #impl_generics #bit_struct_name #ty_generics #where_clause {
             #(#fields_methods)*
         }
 
-        impl ::bity::TryBits for #bit_struct_name {
+        #debug_impl
+
+        impl #impl_generics From<#bit_struct_name #ty_generics> for #bit_struct_inner_ty #where_clause {
+            #[inline(always)]
+            fn from(value: #bit_struct_name #ty_generics) -> #bit_struct_inner_ty {
+                value.__raw
+            }
+        }
+
+        impl #impl_generics ::bity::TryBits for #bit_struct_name #ty_generics #where_clause {
             type Raw = #bit_struct_inner_ty;
 
-            #[inline]
+            #[inline(always)]
             fn try_from_raw(value: Self::Raw) -> Option<Self> {
                 Some(Self { __raw: value })
             }
 
-            #[inline]
+            #[inline(always)]
             fn into_raw(self) -> Self::Raw {
                 self.__raw
             }
         }
 
-        impl ::bity::Bits for #bit_struct_name {
-            #[inline]
+        impl #impl_generics ::bity::Bits for #bit_struct_name #ty_generics #where_clause {
+            #[inline(always)]
             fn from_raw(value: Self::Raw) -> Self {
+                Self { __raw: value }
+            }
+        }
+
+        impl #impl_generics From<#bit_struct_inner_ty> for #bit_struct_name #ty_generics #where_clause {
+            #[inline(always)]
+            fn from(value: #bit_struct_inner_ty) -> Self {
                 Self { __raw: value }
             }
         }

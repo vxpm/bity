@@ -2,7 +2,7 @@ use bity::prelude::*;
 use bity_impl::bity;
 
 #[bity(32)]
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(PartialEq, Eq)]
 struct Arr {
     #[bits(0..4)]
     arr: [bool; 4],

@@ -2,7 +2,7 @@ use bity::prelude::*;
 use bity_impl::bity;
 
 #[bity(2)]
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq)]
 enum Foo {
     A = 0x00,
     B = 0x01,
@@ -10,7 +10,7 @@ enum Foo {
 }
 
 #[bity(2)]
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq)]
 enum Bar {
     A = 0x00,
     B = 0x01,
@@ -19,7 +19,6 @@ enum Bar {
 }
 
 #[bity(8)]
-#[derive(Clone, Copy)]
 struct Test {
     #[bits(0..2)]
     foo: Option<Foo>,

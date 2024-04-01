@@ -3,7 +3,7 @@ use bity_impl::bity;
 
 #[bity(32)]
 #[derive(Debug, PartialEq, Eq)]
-struct Simple {
+struct Generic<const N: usize> {
     /// This is a test flag.
     #[bits(0..1)]
     flag: bool,
@@ -13,7 +13,7 @@ struct Simple {
 
 #[test]
 fn test_simple() {
-    let s0 = Simple::from_raw(0b101_1);
+    let s0: Generic<3> = Generic::from_raw(0b101_1);
 
     assert_eq!(s0.flag(), true);
     assert_eq!(s0.value(), u3::new(5));
