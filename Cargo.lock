@@ -5,6 +5,7 @@ version = 3
 [[package]]
 name = "arbitrary-int"
 version = "1.2.7"
+source = "git+https://github.com/vxpm/arbitrary-int?branch=num-traits#3ac8b98df3f10e5945688f1479c82e2ee7aec6d5"
 dependencies = [
  "num-traits",
 ]
@@ -17,7 +18,8 @@ checksum = "f1fdabc7756949593fe60f30ec81974b613357de856987752631dea1e3394c80"
 
 [[package]]
 name = "bitut"
-version = "0.1.0"
+version = "0.2.0"
+source = "git+https://github.com/vxpm/bitut#2e8048b7a0a7bfd607fd49783121eaca0b7cf52f"
 
 [[package]]
 name = "bity"
