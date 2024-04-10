@@ -6,4 +6,5 @@ edition = "2021"
 [dependencies]
 bity-impl = { path = "../bity-impl/", version = "0.1" }
 bitut = { path = "../../bitut", version = "0.1" }
-arbitrary-int = "1.2"
+arbitrary-int = { path = "../../arbitrary-int/", features = ["num-traits"] }
+num-traits = "0.2.18"

@@ -501,8 +501,9 @@ struct BitStruct {
 impl BitStruct {
     pub fn new(original_def: ItemStruct, bit_size: LitInt) -> Result<Self, TokenStream> {
         let inner_ty = {
-            let ident = format_ident!("u{bit_size}");
-            parse_quote! { #ident }
+            let inner_ty_name = format_ident!("u{bit_size}");
+            let inner_ty = quote! { ::bity::raw::#inner_ty_name };
+            parse_quote! { #inner_ty }
         };
 
         let ItemStruct {

@@ -8,7 +8,8 @@ pub fn generate(bit_size: LitInt, input: DeriveInput) -> Result<TokenStream, Tok
         unreachable!()
     };
 
-    let inner_ty = format_ident!("u{bit_size}");
+    let inner_ty_name = format_ident!("u{bit_size}");
+    let inner_ty = quote! { ::bity::raw::#inner_ty_name };
     let enum_name = &input.ident;
     let bit_size_value: u8 = bit_size
         .base10_parse()
@@ -16,30 +17,24 @@ pub fn generate(bit_size: LitInt, input: DeriveInput) -> Result<TokenStream, Tok
 
     for variant in &enum_data.variants {
         if !variant.fields.is_empty() {
-            return Err(error!(
-                variant.fields.span(),
-                "Bit enums cannot have fields"
-            ));
+            return Err(error!(variant.fields.span(), "Cannot have fields"));
         }
 
         let Some((_, discriminant)) = &variant.discriminant else {
-            return Err(error!(
-                variant.span(),
-                "Bit enum variants must have explicit discriminants"
-            ));
+            return Err(error!(variant.span(), "Must have explicit discriminants"));
         };
 
         let syn::Expr::Lit(discriminant) = discriminant else {
             return Err(error!(
                 discriminant.span(),
-                "Discriminants must be integer literals"
+                "Discriminant must be integer literals"
             ));
         };
 
         let syn::Lit::Int(discriminant) = &discriminant.lit else {
             return Err(error!(
                 discriminant.span(),
-                "Discriminants must be integer literals"
+                "Discriminant must be integer literals"
             ));
         };
 
@@ -54,17 +49,10 @@ pub fn generate(bit_size: LitInt, input: DeriveInput) -> Result<TokenStream, Tok
             ));
         }
 
-        if !discriminant_value.is_power_of_two() {
-            return Err(error!(
-                discriminant.span(),
-                "Discriminants must be powers of two - a.k.a. contain a single bit set"
-            ));
-        }
-
         if discriminant_value.trailing_zeros() as u8 > bit_size_value - 1 {
             return Err(error!(
                 discriminant.span(),
-                format!("Discriminant size must be at most {bit_size} bits")
+                format!("Discriminant must be in the 1..={bit_size} range")
             ));
         }
     }
@@ -80,53 +68,21 @@ pub fn generate(bit_size: LitInt, input: DeriveInput) -> Result<TokenStream, Tok
     });
 
     Ok(quote! {
-        impl ::bity::BitSetElement for #enum_name
+        impl ::bity::VariantSetEnum for #enum_name
         {
-            type Raw = #inner_ty;
-            const SET_MASK: Self::Raw = {
-                #inner_ty::new(#(#variants_clone as <#inner_ty as Number>::UnderlyingType)|*)
-            };
-
-            #[inline]
-            fn variants() -> &'static [#enum_name] {
+            const VARIANTS: &'static [Self] = {
                 &[
                     #(#variants),*
                 ]
-            }
+            };
+
+            const SET_MASK: Self::Raw = {
+                #inner_ty::new(#((1 << (#variants_clone as <#inner_ty as Number>::UnderlyingType - 1)))|*)
+            };
 
             #[inline]
-            fn set_insert(set: Self::Raw, value: Self) -> Self::Raw {
-                set | (Self::Raw::new(value as <#inner_ty as Number>::UnderlyingType))
-            }
-
-            #[inline]
-            fn set_remove(set: Self::Raw, value: Self) -> Self::Raw {
-                set & !(Self::Raw::new(value as <#inner_ty as Number>::UnderlyingType))
-            }
-
-            #[inline]
-            fn set_contains(set: Self::Raw, value: Self) -> bool {
-                set.value() & (value as <#inner_ty as Number>::UnderlyingType) != 0
-            }
-
-            #[inline]
-            fn set_len(set: Self::Raw) -> usize {
-                (set & Self::SET_MASK).count_ones() as usize
-            }
-
-            #[inline]
-            fn set_not(set: Self::Raw) -> Self::Raw {
-                !set
-            }
-
-            #[inline]
-            fn set_or(lhs: Self::Raw, rhs: Self::Raw) -> Self::Raw {
-                lhs | rhs
-            }
-
-            #[inline]
-            fn set_and(lhs: Self::Raw, rhs: Self::Raw) -> Self::Raw {
-                lhs & rhs
+            fn into_bit(self) -> Self::Raw {
+                Self::Raw::new(1 << (self as <#inner_ty as Number>::UnderlyingType - 1))
             }
         }
     })

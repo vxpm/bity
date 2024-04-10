@@ -4,7 +4,8 @@ use quote::{format_ident, quote, ToTokens};
 use syn::{spanned::Spanned, ItemEnum, LitInt};
 
 pub fn generate(bit_size: LitInt, def: ItemEnum) -> Result<TokenStream, TokenStream> {
-    let inner_ty = format_ident!("u{bit_size}");
+    let inner_ty_name = format_ident!("u{bit_size}");
+    let inner_ty = quote! { ::bity::raw::#inner_ty_name };
     let enum_name = &def.ident;
     let bit_size_value: u8 = bit_size
         .base10_parse()
