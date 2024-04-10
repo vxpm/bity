@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-bity-impl = { path = "../bity-impl/", version = "0.1" }
-bitut = { path = "../../bitut", version = "0.1" }
+bitut = { version = "0.2", git = "https://github.com/vxpm/bitut" }
+bity-impl = { version = "0.1", path = "../bity-impl/" }
 arbitrary-int = { path = "../../arbitrary-int/", features = ["num-traits"] }
 num-traits = "0.2.18"
